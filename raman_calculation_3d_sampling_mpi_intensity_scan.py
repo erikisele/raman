@@ -1,7 +1,7 @@
 from mpi4py import MPI
 import numpy as np
 import time
-from raman_utils import sample_from_3d_hist, U_p_shaped
+from raman_utils import sample_from_3d_hist, U_p_shaped, ionization_xc_pAp_bw_weighted_shaped
 import h5py
 import pickle
 
@@ -70,14 +70,10 @@ dt = 0.1e-18/2.419e-17
 # --------------------------------------------------
 def compute_block(args):
     k, photon_energy, splitting, sigma_lower, sigma_upper, theta, phi, E_val, D_hat, Z, energies = args
-
-    dip_loc = np.sin(phi)*np.cos(theta)*dips[0] + np.sin(phi)*np.sin(theta)*dips[1] + np.cos(phi)*dips[2]
-
-    D_vals, Z = np.linalg.eigh(dip_loc)
-    D_hat = np.diag(D_vals)
+    # D_hat and Z are precomputed once per angle outside the task list
 
     # blue before
-    
+
 
     # red before
     if pulse_type=='red_before':
@@ -195,7 +191,10 @@ U_p_int_scan = np.zeros(
 
 for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
-    # eigen decomposition (same on all ranks)
+    # Eigendecomposition for this angle — computed once, shared across all tasks at this angle
+    dip_loc = np.sin(phi)*np.cos(theta)*dips[0] + np.sin(phi)*np.sin(theta)*dips[1] + np.cos(phi)*dips[2]
+    D_vals_loc, Z_loc = np.linalg.eigh(dip_loc)
+    D_hat_loc = np.diag(D_vals_loc)
 
     I_vals_v, sigmas_au_lower_v = np.meshgrid(I_vals, sigmas_au_lower)
     _, sigmas_au_upper_v = np.meshgrid(I_vals, sigmas_au_upper)
@@ -208,7 +207,7 @@ for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
     # Build full task list (only rank 0)
     if rank == 0:
-        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, np.sqrt(I_val), D_hat, Z, energies)
+        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, np.sqrt(I_val), D_hat_loc, Z_loc, energies)
                  for k, (I_val, splitting_sample, sigma_lower, sigma_upper)
                  in enumerate(zip(I_vals_v, splitting_samples_v, sigmas_au_lower_v, sigmas_au_upper_v))]
 
