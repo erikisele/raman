@@ -44,7 +44,7 @@ def ionization_xc_pAp(energy):
         xc += mu_elam * mass * count / 6.0221408e+23
     return xc
 
-photon_energy_lut = np.arange(350, 600)
+photon_energy_lut = np.arange(350, 600, 0.1)
 xc_lut = np.zeros(len(photon_energy_lut))
 for i in range(len(xc_lut)):
     xc_lut[i] = ionization_xc_pAp(float(photon_energy_lut[i]))
@@ -72,7 +72,7 @@ def ionization_xc_pAp_bw_weighted(photon_energy_eV, sigma_t_au):
     photon_energy_eV : central photon energy [eV]
     sigma_t_au       : temporal 1/e half-width of the envelope [atomic units]
     """
-    weights = np.exp(-((photon_energy_lut - photon_energy_eV) * (sigma_t_au / au2ev)) ** 2)
+    weights = np.exp(-((photon_energy_lut - photon_energy_eV) * (sigma_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
     return np.dot(weights, xc_lut) / weights.sum()
 
 def ionization_xc_pAp_bw_weighted_shaped(photon_energy1_eV, photon_energy2_eV, sigma1_t_au, sigma2_t_au):
@@ -85,8 +85,8 @@ def ionization_xc_pAp_bw_weighted_shaped(photon_energy1_eV, photon_energy2_eV, s
     photon_energy1_eV, photon_energy2_eV : center energies [eV]
     sigma1_t_au, sigma2_t_au             : temporal 1/e half-widths [atomic units]
     """
-    w1 = np.exp(-((photon_energy_lut - photon_energy1_eV) * (sigma1_t_au / au2ev)) ** 2)
-    w2 = np.exp(-((photon_energy_lut - photon_energy2_eV) * (sigma2_t_au / au2ev)) ** 2)
+    w1 = np.exp(-((photon_energy_lut - photon_energy1_eV) * (sigma1_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
+    w2 = np.exp(-((photon_energy_lut - photon_energy2_eV) * (sigma2_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
     weights = w1 + w2
     return np.dot(weights, xc_lut) / weights.sum()
 

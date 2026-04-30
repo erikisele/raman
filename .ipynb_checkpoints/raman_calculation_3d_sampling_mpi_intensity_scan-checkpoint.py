@@ -1,7 +1,7 @@
 from mpi4py import MPI
 import numpy as np
 import time
-from raman_utils import sample_from_3d_hist, U_p_shaped
+from raman_utils import sample_from_3d_hist, U_p_shaped, ionization_xc_pAp_bw_weighted_shaped
 import h5py
 import pickle
 
@@ -30,7 +30,7 @@ pulse_type = 'red_before'
 if not (pulse_type=='red_before' or pulse_type=='blue_before'):
     raise ValueError("Invalid pulse type")
 
-savefile = f'sample_bandwidths_{pulse_type}_intensity_scan_28_angle_points_16_fs_t_window.h5'
+savefile = f'sample_bandwidths_{pulse_type}_intensity_scan_version_2.h5'
 
 # Nitrogen dipole moments
 file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
@@ -70,14 +70,10 @@ dt = 0.1e-18/2.419e-17
 # --------------------------------------------------
 def compute_block(args):
     k, photon_energy, splitting, sigma_lower, sigma_upper, theta, phi, E_val, D_hat, Z, energies = args
-
-    dip_loc = np.sin(phi)*np.cos(theta)*dips[0] + np.sin(phi)*np.sin(theta)*dips[1] + np.cos(phi)*dips[2]
-
-    D_vals, Z = np.linalg.eigh(dip_loc)
-    D_hat = np.diag(D_vals)
+    # D_hat and Z are precomputed once per angle outside the task list
 
     # blue before
-    
+
 
     # red before
     if pulse_type=='red_before':
@@ -128,7 +124,7 @@ def compute_block(args):
 
 
 
-photon_energy = 402.5/au2ev
+photon_energy = 402/au2ev
 I_vals = np.logspace(-3, 4, 30)
 # I_vals = np.logspace(20, 43, 2)/au_2_wcm2
 # I_vals = np.array([1e16])/au_2_wcm2
@@ -159,14 +155,17 @@ sigmas_au_upper = 0.44*2*np.pi/(samples[:, 2]/au2ev)
 # sigmas_au_upper = 0.44*2*np.pi/(np.array([2.5])/au2ev)
 
 splitting = 5.5/au2ev
-# mu1 = -31
-# mu2 = 31
-mu1 = -44.24
-mu2 = 44.24
+mu1 = -31
+mu2 = 31
+# mu1 = -44.24
+# mu2 = 44.24
 
-data = np.load('angle_points_28.npz')
-theta_points = data['theta_points']
-phi_points = data['phi_points']
+# data = np.load('angle_points_28.npz')
+# theta_points = data['theta_points']
+# phi_points = data['phi_points']
+
+theta_points = np.array([0.0])
+phi_points = np.array([0.0])
 
 
 # --------------------------------------------------
@@ -195,7 +194,10 @@ U_p_int_scan = np.zeros(
 
 for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
-    # eigen decomposition (same on all ranks)
+    # Eigendecomposition for this angle — computed once, shared across all tasks at this angle
+    dip_loc = np.sin(phi)*np.cos(theta)*dips[0] + np.sin(phi)*np.sin(theta)*dips[1] + np.cos(phi)*dips[2]
+    D_vals_loc, Z_loc = np.linalg.eigh(dip_loc)
+    D_hat_loc = np.diag(D_vals_loc)
 
     I_vals_v, sigmas_au_lower_v = np.meshgrid(I_vals, sigmas_au_lower)
     _, sigmas_au_upper_v = np.meshgrid(I_vals, sigmas_au_upper)
@@ -208,7 +210,7 @@ for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
     # Build full task list (only rank 0)
     if rank == 0:
-        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, np.sqrt(I_val), D_hat, Z, energies)
+        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, np.sqrt(I_val), D_hat_loc, Z_loc, energies)
                  for k, (I_val, splitting_sample, sigma_lower, sigma_upper)
                  in enumerate(zip(I_vals_v, splitting_samples_v, sigmas_au_lower_v, sigmas_au_upper_v))]
 
@@ -267,6 +269,7 @@ if rank==0:
         hf.create_dataset('sigmas_au_upper', data=sigmas_au_upper)
         hf.create_dataset('phi_points', data=phi_points)
         hf.create_dataset('theta_points', data=theta_points)
+        hf.create_dataset('photon_energy', data=np.array([photon_energy]))
 
 toc = time.time()
 

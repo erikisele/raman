@@ -30,7 +30,7 @@ pulse_type = 'red_before'
 if not (pulse_type=='red_before' or pulse_type=='blue_before'):
     raise ValueError("Invalid pulse type")
 
-savefile = f'sample_bandwidths_{pulse_type}_intensity_scan_28_angle_points_16_fs_t_window.h5'
+savefile = f'sample_bandwidths_{pulse_type}_intensity_scan_version_2.h5'
 
 # Nitrogen dipole moments
 file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
@@ -124,7 +124,7 @@ def compute_block(args):
 
 
 
-photon_energy = 402.5/au2ev
+photon_energy = 402/au2ev
 I_vals = np.logspace(-3, 4, 30)
 # I_vals = np.logspace(20, 43, 2)/au_2_wcm2
 # I_vals = np.array([1e16])/au_2_wcm2
@@ -155,14 +155,17 @@ sigmas_au_upper = 0.44*2*np.pi/(samples[:, 2]/au2ev)
 # sigmas_au_upper = 0.44*2*np.pi/(np.array([2.5])/au2ev)
 
 splitting = 5.5/au2ev
-# mu1 = -31
-# mu2 = 31
-mu1 = -44.24
-mu2 = 44.24
+mu1 = -31
+mu2 = 31
+# mu1 = -44.24
+# mu2 = 44.24
 
-data = np.load('angle_points_28.npz')
-theta_points = data['theta_points']
-phi_points = data['phi_points']
+# data = np.load('angle_points_28.npz')
+# theta_points = data['theta_points']
+# phi_points = data['phi_points']
+
+theta_points = np.array([0.0])
+phi_points = np.array([0.0])
 
 
 # --------------------------------------------------
@@ -266,6 +269,7 @@ if rank==0:
         hf.create_dataset('sigmas_au_upper', data=sigmas_au_upper)
         hf.create_dataset('phi_points', data=phi_points)
         hf.create_dataset('theta_points', data=theta_points)
+        hf.create_dataset('photon_energy', data=np.array([photon_energy]))
 
 toc = time.time()
 

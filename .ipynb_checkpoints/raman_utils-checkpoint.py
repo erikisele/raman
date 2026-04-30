@@ -38,15 +38,13 @@ def ionization_xc_element(element, energy):
 def ionization_xc_pAp(energy):
     elements = {'C': 6, 'O': 1, 'N': 1, 'H': 7}
     xc = 0
-    for element in elements.keys():
-        for i in range(elements[element]):
-            mu_elam = xraydb.mu_elam(element, energy)
-            mass = xraydb.atomic_mass(element)
-            xc += mu_elam*mass/6.0221408e+23
-
+    for element, count in elements.items():
+        mu_elam = xraydb.mu_elam(element, energy)
+        mass = xraydb.atomic_mass(element)
+        xc += mu_elam * mass * count / 6.0221408e+23
     return xc
 
-photon_energy_lut = np.arange(350, 600)
+photon_energy_lut = np.arange(350, 600, 0.1)
 xc_lut = np.zeros(len(photon_energy_lut))
 for i in range(len(xc_lut)):
     xc_lut[i] = ionization_xc_pAp(float(photon_energy_lut[i]))
@@ -64,23 +62,33 @@ def ionization_xc_pAp_interp_shaped(energy1, energy2):
 
     return np.interp(energy, photon_energy_lut, xc_lut)
 
-def ionization_xc_element(element, energy):
-    mu_elam = xraydb.mu_elam(element, energy)
-    rho = xraydb.atomic_density(element)
-    xc = mu_elam*rho
-    return xc
+def ionization_xc_pAp_bw_weighted(photon_energy_eV, sigma_t_au):
+    """Bandwidth-weighted ionization cross section for a Gaussian x-ray pulse.
 
-def ionization_xc_pAp(energy):
-    elements = {'C': 6, 'O': 1, 'N': 1, 'H': 7}
-    xc = 0
-    for element in elements.keys():
-        for i in range(elements[element]):
-            mu_elam = xraydb.mu_elam(element, energy)
-            rho = xraydb.atomic_density(element)
-            mass = xraydb.atomic_mass(element)
-            xc += mu_elam*mass/6.0221408e+23
+    Weights xc(E) by the pulse power spectrum exp(-(E-E0)^2 * (sigma_t/au2ev)^2),
+    which is the Fourier-transform power spectrum of exp(-t^2/(2*sigma_t^2))*cos(omega_0*t).
+    Uses the precomputed LUT for efficiency — O(N) dot product, no xraydb calls.
 
-    return xc
+    photon_energy_eV : central photon energy [eV]
+    sigma_t_au       : temporal 1/e half-width of the envelope [atomic units]
+    """
+    weights = np.exp(-((photon_energy_lut - photon_energy_eV) * (sigma_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
+    return np.dot(weights, xc_lut) / weights.sum()
+
+def ionization_xc_pAp_bw_weighted_shaped(photon_energy1_eV, photon_energy2_eV, sigma1_t_au, sigma2_t_au):
+    """Bandwidth-weighted ionization cross section for a two-component shaped Gaussian pulse.
+
+    Total spectral weight is the incoherent sum of the two pulse power spectra,
+    valid when the two center frequencies are separated by more than their bandwidths.
+    Uses the precomputed LUT for efficiency — O(N) dot product, no xraydb calls.
+
+    photon_energy1_eV, photon_energy2_eV : center energies [eV]
+    sigma1_t_au, sigma2_t_au             : temporal 1/e half-widths [atomic units]
+    """
+    w1 = np.exp(-((photon_energy_lut - photon_energy1_eV) * (sigma1_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
+    w2 = np.exp(-((photon_energy_lut - photon_energy2_eV) * (sigma2_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
+    weights = w1 + w2
+    return np.dot(weights, xc_lut) / weights.sum()
 
 def I2(t0, t1, sigma, E, energy):
     dt_loc = t1 - t0
@@ -114,8 +122,7 @@ def eV2omega(eV):
     return 2*np.pi*eV/h
 
 def U0(t0_loc, t1_loc, energies):
-    dt_loc = t1_loc - t0_loc
-    return np.diag(np.exp(-1.0j*energies*dt_loc/hbar)) 
+    return np.exp(-1.0j * energies * (t1_loc - t0_loc) / hbar)
 
 # def U1(t0_loc, t1_loc, photon_energy, sigma, E):
 #     U0_loc = U0(t0_loc, t1_loc)
@@ -128,38 +135,27 @@ def U0(t0_loc, t1_loc, energies):
 #     # return U1_loc
 
 def U1_au(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z, energies):
-    U0_loc = U0(t0_loc, t1_loc, energies)
-    eye = np.ones(U0_loc.shape[0])
-    omega = eV2omega(photon_energy)
-    # xc_factor = 3*ionization_xc_pAp(photon_energy)/(4*np.pi**2*alpha*omega)
-    xc_factor = ionization_xc_pAp_interp(photon_energy*27.2114)
-    U1_loc = np.diag(np.exp(-eye*xc_factor*I2(t0_loc, t1_loc, sigma, E, photon_energy) * (1/(5.29177e-9)**2) / photon_energy)) @ U0_loc
-    return U0_loc
-    # return U1_loc
+    return U0(t0_loc, t1_loc, energies)
 
 def U1_au_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies):
-    U0_loc = U0(t0_loc, t1_loc, energies)
-    eye = np.ones(U0_loc.shape[0])
-    # xc_factor = 3*ionization_xc_pAp(photon_energy)/(4*np.pi**2*alpha*omega)
-    xc_factor = ionization_xc_pAp_interp_shaped(photon_energy1*27.2114, photon_energy2*27.2114)
-    U1_loc = np.diag(np.exp(-eye*xc_factor*I2_shaped(t0_loc, t1_loc, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2) * (1/(5.29177e-9)**2) / ((photon_energy1 + photon_energy2)/2))) @ U0_loc
-    # return U0_loc
-    return U1_loc
+    u0_diag = U0(t0_loc, t1_loc, energies)
+    xc_factor = ionization_xc_pAp_bw_weighted_shaped(photon_energy1*27.2114, photon_energy2*27.2114, sigma1, sigma2)
+    xc_scale = xc_factor * (1.0 / (5.29177e-9)**2) / ((photon_energy1 + photon_energy2) / 2.0)
+    i2 = I2_shaped(t0_loc, t1_loc, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
+    return np.exp(-xc_scale * i2) * u0_diag
 
 def U2(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z, verbose=True):
-    # if verbose: print(f"E value: {E}")
     I1_loc = I1(t0_loc, t1_loc, sigma, E, photon_energy)
-    U2_loc = Z @ np.diag(np.exp(-1.0j * np.diag(D_hat) * I1_loc * q / hbar)) @ Z.T.conj()
-    # print(I1_loc)
+    phase = np.exp(-1.0j * np.diag(D_hat) * I1_loc * q / hbar)
+    U2_loc = (Z * phase) @ Z.T.conj()
     if np.any(np.isnan(U2_loc)):
         print("nan in U2_loc")
     return U2_loc
 
 def U2_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, verbose=True):
-    # if verbose: print(f"E value: {E}")
-    I1_loc = I1_shaped(t0_loc, t1_loc, mu1, mu2, sigma1, sigma1, E1, E2, photon_energy1, photon_energy2)
-    U2_loc = Z @ np.diag(np.exp(-1.0j * np.diag(D_hat) * I1_loc * q / hbar)) @ Z.T.conj()
-    # print(I1_loc)
+    I1_loc = I1_shaped(t0_loc, t1_loc, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
+    phase = np.exp(-1.0j * np.diag(D_hat) * I1_loc * q / hbar)
+    U2_loc = (Z * phase) @ Z.T.conj()
     if np.any(np.isnan(U2_loc)):
         print("nan in U2_loc")
     return U2_loc
@@ -167,25 +163,49 @@ def U2_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, 
 def U_tilde(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z, energies):
     dt_loc = t1_loc - t0_loc
     U2_local = U2(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z)
-    U1_local = U1_au(t0_loc + dt_loc/2, t1_loc + dt_loc/2, photon_energy, sigma, E, D_hat, Z, energies)
-    return U1_local @ U2_local
+    u1_diag = U1_au(t0_loc + dt_loc/2, t1_loc + dt_loc/2, photon_energy, sigma, E, D_hat, Z, energies)
+    return u1_diag[:, None] * U2_local
 
 def U_tilde_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies):
     dt_loc = t1_loc - t0_loc
     U2_local = U2_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z)
-    U1_local = U1_au_shaped(t0_loc + dt_loc/2, t1_loc + dt_loc/2, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies)
-    return U1_local @ U2_local
+    u1_diag = U1_au_shaped(t0_loc + dt_loc/2, t1_loc + dt_loc/2, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies)
+    return u1_diag[:, None] * U2_local
 
 def U_p_shaped(t0_loc, t1_loc, dt, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies):
-    U_p_loc = U1_au_shaped(t0_loc, t1_loc+dt/2, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies)
-        
-    for i, t0_step in enumerate(np.arange(t0_loc, t1_loc, dt)):
-        t1_step = t0_step + dt
-        U_tilde_loc = U_tilde_shaped(t0_step, t1_step, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies)
-        U_p_loc = U_tilde_loc @ U_p_loc
-    
-    U_p_loc = U1_au_shaped(t1_loc, t1_loc+dt/2, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies) @ U_p_loc
-    return U_p_loc
+    d_hat_diag = np.diag(D_hat)
+
+    # Compute time-independent quantities once instead of once per timestep (~160k steps)
+    xc_factor = ionization_xc_pAp_bw_weighted_shaped(
+        photon_energy1 * au2ev, photon_energy2 * au2ev, sigma1, sigma2)
+    xc_scale = xc_factor * (1.0 / (5.29177e-9)**2) / ((photon_energy1 + photon_energy2) / 2.0)
+    u0_dt = np.exp(-1.0j * energies * dt)  # U0 diagonal for inner steps (span = dt, constant)
+
+    def _u1_diag(t0, t1):
+        i2 = I2_shaped(t0, t1, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
+        return np.exp(-xc_scale * i2) * np.exp(-1.0j * energies * (t1 - t0))
+
+    def _u_tilde(t0_s):
+        I1_loc = I1_shaped(t0_s, t0_s + dt, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
+        phase = np.exp(-1.0j * d_hat_diag * I1_loc)
+        U2_loc = (Z * phase) @ Z.conj().T
+        i2_mid = I2_shaped(t0_s + dt/2, t0_s + 1.5*dt, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
+        u1_loc = np.exp(-xc_scale * i2_mid) * u0_dt
+        return u1_loc[:, None] * U2_loc  # diag(u1) @ U2 without materializing NxN diagonal
+
+    u1_init = _u1_diag(t0_loc, t1_loc + dt/2)
+    time_steps = np.arange(t0_loc, t1_loc, dt)
+
+    if len(time_steps) == 0:
+        U_p_loc = np.diag(u1_init)
+    else:
+        # First step: fuse with initial diagonal via column scaling (avoids one O(N^3) matmul)
+        U_p_loc = _u_tilde(time_steps[0]) * u1_init[None, :]
+        for t0_s in time_steps[1:]:
+            U_p_loc = _u_tilde(t0_s) @ U_p_loc
+
+    u1_final = _u1_diag(t1_loc, t1_loc + dt/2)
+    return u1_final[:, None] * U_p_loc
 
 def sample_from_2d_hist(H, xedges, yedges, n_samples):
     """

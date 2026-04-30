@@ -1,7 +1,7 @@
 from mpi4py import MPI
 import numpy as np
 import time
-from raman_utils import sample_from_3d_hist, U_p_shaped
+from raman_utils import sample_from_3d_hist, U_p_shaped, ionization_xc_pAp_bw_weighted_shaped
 import h5py
 import pickle
 
@@ -25,7 +25,12 @@ def split_list(lst, n):
     k, m = divmod(len(lst), n)
     return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
 
-savefile = 'sample_bandwidths_blue_before_54_angles_sample_1.h5'
+pulse_type = 'blue_before'
+
+if not (pulse_type=='red_before' or pulse_type=='blue_before'):
+    raise ValueError("Invalid pulse type")
+
+savefile = f'sample_bandwidths_{pulse_type}_version_2_I_4e17.h5'
 
 # Nitrogen dipole moments
 file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
@@ -65,27 +70,32 @@ dt = 0.1e-18/2.419e-17
 # --------------------------------------------------
 def compute_block(args):
     k, photon_energy, splitting, sigma_lower, sigma_upper, theta, phi, E_val, D_hat, Z, energies = args
-
-    dip_loc = np.sin(phi)*np.cos(theta)*dips[0] + np.sin(phi)*np.sin(theta)*dips[1] + np.cos(phi)*dips[2]
-
-    D_vals, Z = np.linalg.eigh(dip_loc)
-    D_hat = np.diag(D_vals)
-
-    # blue before
-    photon_energy1 = photon_energy
-    photon_energy2 = photon_energy - (splitting)
+    # D_hat and Z are precomputed once per angle outside the task list
 
     # red before
-    # photon_energy1 = photon_energy - (splitting / 2)
-    # photon_energy2 = photon_energy + (splitting / 2)
+    if pulse_type=='red_before':
+        photon_energy2 = photon_energy
+        photon_energy1 = photon_energy - (splitting)
+    else: # blue before
+        photon_energy1 = photon_energy
+        photon_energy2 = photon_energy - (splitting)
 
-    # blue before
-    result = U_p_shaped(
-        t0, t1, dt,
-        mu1, mu2, photon_energy1, photon_energy2,
-        sigma_upper, sigma_lower, E_val, E_val,
-        D_hat, Z, energies
-    )
+    # red before
+    if pulse_type=='red_before':
+        result = U_p_shaped(
+            t0, t1, dt,
+            mu1, mu2, photon_energy1, photon_energy2,
+            sigma_lower, sigma_upper, E_val, E_val,
+            D_hat, Z, energies
+        )
+
+    else: # blue before
+        result = U_p_shaped(
+            t0, t1, dt,
+            mu1, mu2, photon_energy1, photon_energy2,
+            sigma_upper, sigma_lower, E_val, E_val,
+            D_hat, Z, energies
+        )
 
     # red before
     # result = U_p_shaped(
@@ -99,7 +109,7 @@ def compute_block(args):
 
 
 
-photon_energies = np.linspace(390, 408, 20)/au2ev  
+photon_energies = np.linspace(392, 408, 20)/au2ev  
 
 
 data = np.load('/sdf/data/lcls/ds/tmo/tmo101269225/results/erik/sigma_distribution_coherent_fitting_diff_filt_run226.npz')
@@ -111,12 +121,16 @@ filename = '/sdf/home/i/isele/tmo101269225/results/erik/processed_data/bandwidth
 with open(filename, 'rb') as f:
     hist_3d = pickle.load(f)
 
-nsamples = 200
-samples = sample_from_3d_hist(hist_3d[221], hist_3d['bins'][0], hist_3d['bins'][1], hist_3d['bins'][2], nsamples)
+nsamples = 400
+if pulse_type=='red_before':
+    samples = sample_from_3d_hist(hist_3d[226], hist_3d['bins'][0], hist_3d['bins'][1], hist_3d['bins'][2], nsamples)
+else:
+    samples = sample_from_3d_hist(hist_3d[221], hist_3d['bins'][0], hist_3d['bins'][1], hist_3d['bins'][2], nsamples)
 
 splitting_samples = samples[:, 0]/au2ev
 sigmas_au_lower = 0.44*2*np.pi/(samples[:, 1]/au2ev)
 sigmas_au_upper = 0.44*2*np.pi/(samples[:, 2]/au2ev)
+
 
 # splitting_samples = np.array([5.5])/au2ev
 # sigmas_au_lower = 0.44*2*np.pi/(np.array([2.5])/au2ev)
@@ -126,15 +140,18 @@ splitting = 5.5/au2ev
 mu1 = -31
 mu2 = 31
 
-I_val = 1e16/au_2_wcm2
+I_val = 4e17/au_2_wcm2
 E_val = np.sqrt(I_val)
 
 # phi_points = np.array([0.0])
 # theta_points = np.array([0.0])
 
-data = np.load('angle_points_54.npz')
-theta_points = data['theta_points']
-phi_points = data['phi_points']
+# data = np.load('angle_points_54.npz')
+# theta_points = data['theta_points']
+# phi_points = data['phi_points']
+
+phi_points = np.array([0.0])
+theta_points = np.array([0.0])
 
 
 # --------------------------------------------------
@@ -155,12 +172,20 @@ tic = time.time()
 
 all_results = []
 
+if rank==0:
+    U_p_int_scan = np.zeros((len(phi_points), len(photon_energies),
+                             nsamples, len(energies), len(energies)),
+                             dtype=np.complex64)
+
 
 for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
     print('angle index: ', j)
 
-    # eigen decomposition (same on all ranks)
+    # Eigendecomposition for this angle — computed once, shared across all tasks at this angle
+    dip_loc = np.sin(phi)*np.cos(theta)*dips[0] + np.sin(phi)*np.sin(theta)*dips[1] + np.cos(phi)*dips[2]
+    D_vals_loc, Z_loc = np.linalg.eigh(dip_loc)
+    D_hat_loc = np.diag(D_vals_loc)
 
     photon_energies_v, sigmas_au_lower_v = np.meshgrid(photon_energies, sigmas_au_lower)
     _, sigmas_au_upper_v = np.meshgrid(photon_energies, sigmas_au_upper)
@@ -175,7 +200,7 @@ for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
     # Build full task list (only rank 0)
     if rank == 0:
-        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, E_val, D_hat, Z, energies)
+        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, E_val, D_hat_loc, Z_loc, energies)
                  for k, (photon_energy, splitting_sample, sigma_lower, sigma_upper)
                  in enumerate(zip(photon_energies_v, splitting_samples_v, sigmas_au_lower_v, sigmas_au_upper_v))]
 
@@ -210,12 +235,12 @@ for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
         sigma_idx_v = sigma_idx_v.flatten()
 
         # allocate output once
-        if 'U_p_int_scan' not in globals():
-            U_p_int_scan = np.zeros(
-                (len(phi_points), len(photon_energies),
-                 len(sigmas_au_lower), len(energies), len(energies)),
-                dtype=np.complex64
-            )
+        # if 'U_p_int_scan' not in globals():
+        #     U_p_int_scan = np.zeros(
+        #         (len(phi_points), len(photon_energies),
+        #          len(sigmas_au_lower), len(energies), len(energies)),
+        #         dtype=np.complex64
+        #     )
 
         for k, result in results:
             p_idx = photon_energy_idx_v[k]
