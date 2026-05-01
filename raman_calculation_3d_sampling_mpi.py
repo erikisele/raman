@@ -30,13 +30,20 @@ pulse_type = 'blue_before'
 if not (pulse_type=='red_before' or pulse_type=='blue_before'):
     raise ValueError("Invalid pulse type")
 
-savefile = f'sample_bandwidths_{pulse_type}_version_2_I_4e17.h5'
+savefile = f'sample_bandwidths_{pulse_type}_version_6_I_1e16_all_states.h5'
 
 # Nitrogen dipole moments
-file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
+# file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
+file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/ANO-S_calcs/mAp_nitrogen/input.rassi.h5"
 with h5py.File(file, 'r') as hf:
     dips = hf['SFS_EDIPMOM'][:]
     energies_h5 = hf['SFS_ENERGIES'][:]
+
+# states_selected = np.concatenate((np.arange(0, 2, 1), np.arange(20, 40, 1)))
+# states_selected = np.concatenate((np.array([0]), np.array([3]), np.arange(20, 40, 1)))
+states_selected = np.arange(0, 40)
+dips = dips[np.ix_(np.arange(3), states_selected, states_selected)]
+energies_h5 = energies_h5[states_selected]
 
 idcs = np.arange(dips.shape[1])
 
@@ -109,7 +116,7 @@ def compute_block(args):
 
 
 
-photon_energies = np.linspace(392, 408, 20)/au2ev  
+photon_energies = np.linspace(392, 420, 40)/au2ev  
 
 
 data = np.load('/sdf/data/lcls/ds/tmo/tmo101269225/results/erik/sigma_distribution_coherent_fitting_diff_filt_run226.npz')
@@ -137,10 +144,12 @@ sigmas_au_upper = 0.44*2*np.pi/(samples[:, 2]/au2ev)
 # sigmas_au_upper = 0.44*2*np.pi/(np.array([2.5])/au2ev)
 
 splitting = 5.5/au2ev
-mu1 = -31
-mu2 = 31
+# mu1 = -31
+# mu2 = 31
+mu1 = -44.24
+mu2 = 44.24
 
-I_val = 4e17/au_2_wcm2
+I_val = 1e16/au_2_wcm2
 E_val = np.sqrt(I_val)
 
 # phi_points = np.array([0.0])
@@ -259,6 +268,8 @@ if rank==0:
         hf.create_dataset('phi_points', data=phi_points)
         hf.create_dataset('theta_points', data=theta_points)
         hf.create_dataset('t_axis', data=np.arange(t0, t1, dt))
+        hf.create_dataset('energies', data=energies)
+        hf.create_dataset('states_selected', data=states_selected)
 
 toc = time.time()
 

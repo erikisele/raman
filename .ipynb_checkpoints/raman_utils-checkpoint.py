@@ -26,6 +26,8 @@ au2ev = 27.211
 au2as = 24.419
 au_2_wcm2 = 3.509e16
 
+ionization_calc_offset = 4.177 # this is a fudge factor that aligns the edge with the x-ray data base and the calculations being used
+
 
 # photon energy points
 
@@ -72,7 +74,7 @@ def ionization_xc_pAp_bw_weighted(photon_energy_eV, sigma_t_au):
     photon_energy_eV : central photon energy [eV]
     sigma_t_au       : temporal 1/e half-width of the envelope [atomic units]
     """
-    weights = np.exp(-((photon_energy_lut - photon_energy_eV) * (sigma_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
+    weights = np.exp(-((photon_energy_lut - (photon_energy_eV+ionization_calc_offset)) * ( sigma_t_au / (au2ev * 0.44*2*np.pi))) ** 2) # note no factor of two because this uses the electric field RMS duration to calculate the bandwidth of the intensity
     return np.dot(weights, xc_lut) / weights.sum()
 
 def ionization_xc_pAp_bw_weighted_shaped(photon_energy1_eV, photon_energy2_eV, sigma1_t_au, sigma2_t_au):
@@ -85,8 +87,8 @@ def ionization_xc_pAp_bw_weighted_shaped(photon_energy1_eV, photon_energy2_eV, s
     photon_energy1_eV, photon_energy2_eV : center energies [eV]
     sigma1_t_au, sigma2_t_au             : temporal 1/e half-widths [atomic units]
     """
-    w1 = np.exp(-((photon_energy_lut - photon_energy1_eV) * (sigma1_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
-    w2 = np.exp(-((photon_energy_lut - photon_energy2_eV) * (sigma2_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
+    w1 = np.exp(-((photon_energy_lut - (photon_energy1_eV + ionization_calc_offset)) * ( sigma1_t_au / (au2ev * 0.44*2*np.pi))) ** 2) # note no factor of two because this uses the electric field RMS duration to calculate the bandwidth of the intensity
+    w2 = np.exp(-((photon_energy_lut - (photon_energy2_eV+ionization_calc_offset)) * ( sigma2_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
     weights = w1 + w2
     return np.dot(weights, xc_lut) / weights.sum()
 
