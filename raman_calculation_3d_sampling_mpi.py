@@ -40,8 +40,8 @@ with h5py.File(file, 'r') as hf:
     energies_h5 = hf['SFS_ENERGIES'][:]
 
 # states_selected = np.concatenate((np.arange(0, 2, 1), np.arange(20, 40, 1)))
-# states_selected = np.concatenate((np.array([0]), np.array([3]), np.arange(20, 40, 1)))
-states_selected = np.arange(0, 40)
+states_selected = np.concatenate((np.array([0]), np.array([3]), np.arange(20, 40, 1)))
+# states_selected = np.arange(0, 40)
 dips = dips[np.ix_(np.arange(3), states_selected, states_selected)]
 energies_h5 = energies_h5[states_selected]
 
