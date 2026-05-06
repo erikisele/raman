@@ -1,7 +1,7 @@
 from mpi4py import MPI
 import numpy as np
 import time
-from raman_utils import sample_from_3d_hist, U_p_shaped, ionization_xc_pAp_bw_weighted_shaped
+from raman_utils import sample_from_3d_hist, U_p_shaped, ionization_xc_pAp_bw_weighted_shaped, pulse_fluence_integral
 import h5py
 import pickle
 
@@ -69,7 +69,7 @@ dt = 0.1e-18/2.419e-17
 # Worker function (unchanged)
 # --------------------------------------------------
 def compute_block(args):
-    k, photon_energy, splitting, sigma_lower, sigma_upper, theta, phi, E_val, D_hat, Z, energies = args
+    k, photon_energy, splitting, sigma_lower, sigma_upper, phi, theta, E_val, D_hat, Z, energies = args
     # D_hat and Z are precomputed once per angle outside the task list
 
     # blue before
@@ -125,7 +125,7 @@ def compute_block(args):
 
 
 photon_energy = 402/au2ev
-I_vals = np.logspace(-3, 4, 30)
+F_vals = np.logspace(-3, 4, 30)
 # I_vals = np.logspace(20, 43, 2)/au_2_wcm2
 # I_vals = np.array([1e16])/au_2_wcm2
 
@@ -155,10 +155,10 @@ sigmas_au_upper = 0.44*2*np.pi/(samples[:, 2]/au2ev)
 # sigmas_au_upper = 0.44*2*np.pi/(np.array([2.5])/au2ev)
 
 splitting = 5.5/au2ev
-mu1 = -31
-mu2 = 31
-# mu1 = -44.24
-# mu2 = 44.24
+# mu1 = -31
+# mu2 = 31
+mu1 = -44.24
+mu2 = 44.24
 
 # data = np.load('angle_points_28.npz')
 # theta_points = data['theta_points']
@@ -187,10 +187,33 @@ tic = time.time()
 all_results = []
 
 U_p_int_scan = np.zeros(
-                (len(phi_points), len(I_vals),
+                (len(phi_points), len(F_vals),
                  len(sigmas_au_lower), len(energies), len(energies)),
                 dtype=np.complex64
             )
+
+F_vals_v, sigmas_au_lower_v = np.meshgrid(F_vals, sigmas_au_lower)
+_, sigmas_au_upper_v = np.meshgrid(F_vals, sigmas_au_upper)
+_, splitting_samples_v = np.meshgrid(F_vals, splitting_samples)
+
+F_vals_v = F_vals_v.flatten()
+sigmas_au_lower_v = sigmas_au_lower_v.flatten()
+sigmas_au_upper_v = sigmas_au_upper_v.flatten()
+splitting_samples_v = splitting_samples_v.flatten()
+
+if pulse_type=="red_before":
+    norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_lower, sigma_upper, 1, 1, photon_energy-splitting_sample, photon_energy)
+                for (splitting_sample, sigma_lower, sigma_upper)
+                in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
+else:
+    norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_upper, sigma_lower, 1, 1, photon_energy, photon_energy-splitting_sample)
+                for (splitting_sample, sigma_lower, sigma_upper)
+                in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
+
+_, norm_v = np.meshgrid(F_vals, norm_per_sample)
+F_vals_v_norm = norm_v.flatten()
+
+I_vals_v = F_vals_v/F_vals_v_norm
 
 for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
@@ -198,15 +221,6 @@ for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
     dip_loc = np.sin(phi)*np.cos(theta)*dips[0] + np.sin(phi)*np.sin(theta)*dips[1] + np.cos(phi)*dips[2]
     D_vals_loc, Z_loc = np.linalg.eigh(dip_loc)
     D_hat_loc = np.diag(D_vals_loc)
-
-    I_vals_v, sigmas_au_lower_v = np.meshgrid(I_vals, sigmas_au_lower)
-    _, sigmas_au_upper_v = np.meshgrid(I_vals, sigmas_au_upper)
-    _, splitting_samples_v = np.meshgrid(I_vals, splitting_samples)
-
-    I_vals_v = I_vals_v.flatten()
-    sigmas_au_lower_v = sigmas_au_lower_v.flatten()
-    sigmas_au_upper_v = sigmas_au_upper_v.flatten()
-    splitting_samples_v = splitting_samples_v.flatten()
 
     # Build full task list (only rank 0)
     if rank == 0:
@@ -237,11 +251,11 @@ for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
         print('results length: ', len(results))
 
-        I_val_idx = np.arange(len(I_vals))
+        F_val_idx = np.arange(len(F_vals))
         sigma_idx = np.arange(len(sigmas_au_lower))
 
-        I_val_idx_v, sigma_idx_v = np.meshgrid(I_val_idx, sigma_idx)
-        I_val_idx_v = I_val_idx_v.flatten()
+        F_val_idx_v, sigma_idx_v = np.meshgrid(F_val_idx, sigma_idx)
+        I_val_idx_v = F_val_idx_v.flatten()
         sigma_idx_v = sigma_idx_v.flatten()
 
         # allocate output once
@@ -264,7 +278,7 @@ if rank==0:
     with h5py.File(f'{savefile}', 'w') as hf:
         hf.create_dataset('U_p_int_scan', data=U_p_int_scan)
         hf.create_dataset('splitting_samples', data=splitting_samples)
-        hf.create_dataset('I_vals', data=I_vals)
+        hf.create_dataset('F_vals', data=F_vals)
         hf.create_dataset('sigmas_au_lower', data=sigmas_au_lower)
         hf.create_dataset('sigmas_au_upper', data=sigmas_au_upper)
         hf.create_dataset('phi_points', data=phi_points)

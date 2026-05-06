@@ -1,7 +1,7 @@
 from mpi4py import MPI
 import numpy as np
 import time
-from raman_utils import sample_from_3d_hist, U_p_shaped, ionization_xc_pAp_bw_weighted_shaped
+from raman_utils import sample_from_3d_hist, U_p_shaped, ionization_xc_pAp_bw_weighted_shaped, pulse_fluence_integral
 import h5py
 import pickle
 
@@ -76,7 +76,7 @@ dt = 0.1e-18/2.419e-17
 # Worker function (unchanged)
 # --------------------------------------------------
 def compute_block(args):
-    k, photon_energy, splitting, sigma_lower, sigma_upper, theta, phi, E_val, D_hat, Z, energies = args
+    k, photon_energy, splitting, sigma_lower, sigma_upper, phi, theta, E_val, D_hat, Z, energies = args
     # D_hat and Z are precomputed once per angle outside the task list
 
     # red before
@@ -149,8 +149,18 @@ splitting = 5.5/au2ev
 mu1 = -44.24
 mu2 = 44.24
 
-I_val = 1e16/au_2_wcm2
-E_val = np.sqrt(I_val)
+F_val = 10.0  # target fluence in a.u. (int |E|^2 dt)
+
+# photon_energy cancels in pulse_fluence_integral (only the splitting matters);
+# photon_energies[0] is used as a representative value.
+if pulse_type == "red_before":
+    norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_lower, sigma_upper, 1, 1, photon_energies[0]-splitting_sample, photon_energies[0])
+                for splitting_sample, sigma_lower, sigma_upper
+                in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
+else:
+    norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_upper, sigma_lower, 1, 1, photon_energies[0], photon_energies[0]-splitting_sample)
+                for splitting_sample, sigma_lower, sigma_upper
+                in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
 
 # phi_points = np.array([0.0])
 # theta_points = np.array([0.0])
@@ -207,11 +217,14 @@ for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
     print('photon_energies_v: ', photon_energies_v)
 
+    _, norm_v = np.meshgrid(photon_energies, norm_per_sample)
+    I_vals_v = F_val / norm_v.flatten()
+
     # Build full task list (only rank 0)
     if rank == 0:
-        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, E_val, D_hat_loc, Z_loc, energies)
-                 for k, (photon_energy, splitting_sample, sigma_lower, sigma_upper)
-                 in enumerate(zip(photon_energies_v, splitting_samples_v, sigmas_au_lower_v, sigmas_au_upper_v))]
+        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, np.sqrt(I_val), D_hat_loc, Z_loc, energies)
+                 for k, (photon_energy, splitting_sample, sigma_lower, sigma_upper, I_val)
+                 in enumerate(zip(photon_energies_v, splitting_samples_v, sigmas_au_lower_v, sigmas_au_upper_v, I_vals_v))]
 
         # Split tasks across ranks
         task_chunks = split_list(tasks, size)
@@ -264,7 +277,7 @@ if rank==0:
         hf.create_dataset('sigmas_au_lower', data=sigmas_au_lower)
         hf.create_dataset('sigmas_au_upper', data=sigmas_au_upper)
         hf.create_dataset('photon_energies', data=photon_energies)
-        hf.create_dataset('I_val', data=np.array([I_val]))
+        hf.create_dataset('F_val', data=np.array([F_val]))
         hf.create_dataset('phi_points', data=phi_points)
         hf.create_dataset('theta_points', data=theta_points)
         hf.create_dataset('t_axis', data=np.arange(t0, t1, dt))

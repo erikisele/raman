@@ -21,6 +21,7 @@ alpha = 1/137.035999177
 dipole_au2cm = 2.541765 * 3.33564e-30/1.602e-19 * 1e2 # 1 au = 2.541765 D, 1 D = 3.33564e-30 C*m, 1 cm = 1e-2 m 
 q = 1
 C = 1
+esp0 = 1/(4*np.pi)
 
 au2ev = 27.211
 au2as = 24.419
@@ -296,3 +297,33 @@ def sample_from_3d_hist(H, xedges, yedges, zedges, n_samples):
     z = zedges[iz] + (zedges[iz+1] - zedges[iz]) * np.random.rand(n_samples)
 
     return np.column_stack((x, y, z))
+
+def pulse_fluence_integral(mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2):
+    """
+    Returns int |E(t)|^2 dt for the two-color Gaussian pulse defined in
+    E_field_shaped. To get fluence per unit area, multiply by c*eps_0
+    (in atomic units, I_au = E_au^2, so multiplying by 1 gives intensity
+    in atomic units; conversion to W/cm^2 is via au_2_wcm2 = 3.509e16).
+    Using units and conventions from:
+    https://onlinelibrary.wiley.com/doi/pdf/10.1002/3527605606.app9
+    """
+    omega1 = energy1 / hbar
+    omega2 = energy2 / hbar
+
+    # Self terms
+    self1 = 0.5 * np.sqrt(np.pi) * E1**2 * sigma1
+    self2 = 0.5 * np.sqrt(np.pi) * E2**2 * sigma2
+
+    # Cross term
+    Sigma2 = sigma1**2 + sigma2**2
+    sigma_eff_sq = sigma1**2 * sigma2**2 / Sigma2
+    sigma_eff = np.sqrt(sigma_eff_sq)
+    mu_bar = (mu1 * sigma2**2 + mu2 * sigma1**2) / Sigma2
+    domega = omega1 - omega2
+
+    cross = (E1 * E2 * np.sqrt(2 * np.pi) * sigma_eff
+             * np.exp(-(mu1 - mu2)**2 / (2 * Sigma2))
+             * np.exp(-domega**2 * sigma_eff_sq / 2)
+             * np.cos(domega * mu_bar))
+
+    return self1 + self2 + cross
