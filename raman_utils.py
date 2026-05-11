@@ -98,9 +98,9 @@ def I2(t0, t1, sigma, E, energy):
     I2_int = (np.abs(E_field(t0, sigma, E, energy))**2 + E_field(t1, sigma, E, energy)**2)/2 * dt_loc
     return I2_int
 
-def I2_shaped(t0, t1, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2):
+def I2_shaped(t0, t1, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2, phase):
     dt_loc = t1 - t0
-    I2_int = (np.abs(E_field_shaped(t0, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2))**2 + np.abs(E_field_shaped(t1, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2))**2)/2 * dt_loc
+    I2_int = (np.abs(E_field_shaped(t0, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2, phase))**2 + np.abs(E_field_shaped(t1, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2, phase))**2)/2 * dt_loc
     return I2_int
 
 def I1(t0, t1, sigma, E, energy):
@@ -108,17 +108,17 @@ def I1(t0, t1, sigma, E, energy):
     I1_int = (E_field(t0, sigma, E, energy) + E_field(t1, sigma, E, energy))/2 * dt_loc
     return I1_int
 
-def I1_shaped(t0, t1, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2):
+def I1_shaped(t0, t1, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2, phase):
     dt_loc = t1 - t0
-    I1_int = (E_field_shaped(t0, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2) + E_field_shaped(t1, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2))/2 * dt_loc
+    I1_int = (E_field_shaped(t0, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2, phase) + E_field_shaped(t1, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2, phase))/2 * dt_loc
     return I1_int
 
 def E_field(t, sigma, E, energy):
     return E*np.exp(-(t**2)/(2*sigma**2))*np.cos(energy*t/hbar)
 
-def E_field_shaped(t, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2):
+def E_field_shaped(t, mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2, phase):
     E_field_1 = E1*np.exp(-(t-mu1)**2/(2*sigma1**2))*np.cos(energy1*t/hbar)
-    E_field_2 = E2*np.exp(-(t-mu2)**2/(2*sigma2**2))*np.cos(energy2*t/hbar)
+    E_field_2 = E2*np.exp(-(t-mu2)**2/(2*sigma2**2))*np.cos(energy2*t/hbar + phase)
     return E_field_1 + E_field_2
 
 def eV2omega(eV):
@@ -140,11 +140,11 @@ def U0(t0_loc, t1_loc, energies):
 def U1_au(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z, energies):
     return U0(t0_loc, t1_loc, energies)
 
-def U1_au_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies):
+def U1_au_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies, phase):
     u0_diag = U0(t0_loc, t1_loc, energies)
     xc_factor = ionization_xc_pAp_bw_weighted_shaped(photon_energy1*27.2114, photon_energy2*27.2114, sigma1, sigma2)
     xc_scale = xc_factor * (1.0 / (5.29177e-9)**2) / ((photon_energy1 + photon_energy2) / 2.0)
-    i2 = I2_shaped(t0_loc, t1_loc, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
+    i2 = I2_shaped(t0_loc, t1_loc, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2, phase)
     return np.exp(-xc_scale * i2) * u0_diag
 
 def U2(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z, verbose=True):
@@ -155,10 +155,10 @@ def U2(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z, verbose=True):
         print("nan in U2_loc")
     return U2_loc
 
-def U2_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, verbose=True):
-    I1_loc = I1_shaped(t0_loc, t1_loc, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
-    phase = np.exp(-1.0j * np.diag(D_hat) * I1_loc * q / hbar)
-    U2_loc = (Z * phase) @ Z.T.conj()
+def U2_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, phase, verbose=True):
+    I1_loc = I1_shaped(t0_loc, t1_loc, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2, phase)
+    phase_factor = np.exp(-1.0j * np.diag(D_hat) * I1_loc * q / hbar)
+    U2_loc = (Z * phase_factor) @ Z.T.conj()
     if np.any(np.isnan(U2_loc)):
         print("nan in U2_loc")
     return U2_loc
@@ -169,13 +169,13 @@ def U_tilde(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z, energies):
     u1_diag = U1_au(t0_loc + dt_loc/2, t1_loc + dt_loc/2, photon_energy, sigma, E, D_hat, Z, energies)
     return u1_diag[:, None] * U2_local
 
-def U_tilde_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies):
+def U_tilde_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies, phase):
     dt_loc = t1_loc - t0_loc
-    U2_local = U2_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z)
-    u1_diag = U1_au_shaped(t0_loc + dt_loc/2, t1_loc + dt_loc/2, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies)
+    U2_local = U2_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, phase)
+    u1_diag = U1_au_shaped(t0_loc + dt_loc/2, t1_loc + dt_loc/2, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies, phase)
     return u1_diag[:, None] * U2_local
 
-def U_p_shaped(t0_loc, t1_loc, dt, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies):
+def U_p_shaped(t0_loc, t1_loc, dt, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, energies, phase):
     d_hat_diag = np.diag(D_hat)
 
     # Compute time-independent quantities once instead of once per timestep (~160k steps)
@@ -185,14 +185,14 @@ def U_p_shaped(t0_loc, t1_loc, dt, mu1, mu2, photon_energy1, photon_energy2, sig
     u0_dt = np.exp(-1.0j * energies * dt)  # U0 diagonal for inner steps (span = dt, constant)
 
     def _u1_diag(t0, t1):
-        i2 = I2_shaped(t0, t1, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
+        i2 = I2_shaped(t0, t1, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2, phase)
         return np.exp(-xc_scale * i2) * np.exp(-1.0j * energies * (t1 - t0))
 
     def _u_tilde(t0_s):
-        I1_loc = I1_shaped(t0_s, t0_s + dt, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
-        phase = np.exp(-1.0j * d_hat_diag * I1_loc)
-        U2_loc = (Z * phase) @ Z.conj().T
-        i2_mid = I2_shaped(t0_s + dt/2, t0_s + 1.5*dt, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2)
+        I1_loc = I1_shaped(t0_s, t0_s + dt, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2, phase)
+        phase_factor = np.exp(-1.0j * d_hat_diag * I1_loc)
+        U2_loc = (Z * phase_factor) @ Z.conj().T
+        i2_mid = I2_shaped(t0_s + dt/2, t0_s + 1.5*dt, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2, phase)
         u1_loc = np.exp(-xc_scale * i2_mid) * u0_dt
         return u1_loc[:, None] * U2_loc  # diag(u1) @ U2 without materializing NxN diagonal
 
@@ -298,7 +298,7 @@ def sample_from_3d_hist(H, xedges, yedges, zedges, n_samples):
 
     return np.column_stack((x, y, z))
 
-def pulse_fluence_integral(mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2):
+def pulse_fluence_integral(mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2, phase):
     """
     Returns int |E(t)|^2 dt for the two-color Gaussian pulse defined in
     E_field_shaped. To get fluence per unit area, multiply by c*eps_0
@@ -314,7 +314,7 @@ def pulse_fluence_integral(mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2):
     self1 = 0.5 * np.sqrt(np.pi) * E1**2 * sigma1
     self2 = 0.5 * np.sqrt(np.pi) * E2**2 * sigma2
 
-    # Cross term
+    # Cross term: cos(omega1*t)*cos(omega2*t + phase) -> slowly oscillating part cos((omega1-omega2)*t - phase)
     Sigma2 = sigma1**2 + sigma2**2
     sigma_eff_sq = sigma1**2 * sigma2**2 / Sigma2
     sigma_eff = np.sqrt(sigma_eff_sq)
@@ -324,6 +324,6 @@ def pulse_fluence_integral(mu1, mu2, sigma1, sigma2, E1, E2, energy1, energy2):
     cross = (E1 * E2 * np.sqrt(2 * np.pi) * sigma_eff
              * np.exp(-(mu1 - mu2)**2 / (2 * Sigma2))
              * np.exp(-domega**2 * sigma_eff_sq / 2)
-             * np.cos(domega * mu_bar))
+             * np.cos(domega * mu_bar - phase))
 
     return self1 + self2 + cross
