@@ -30,7 +30,7 @@ pulse_type = 'blue_before'
 if not (pulse_type=='red_before' or pulse_type=='blue_before'):
     raise ValueError("Invalid pulse type")
 
-savefile = f'sample_bandwidths_{pulse_type}_version_6_I_1e16_all_states.h5'
+savefile = f'sample_bandwidths_{pulse_type}_version_fluence_norm_F_20_au_10x_ionization.h5'
 
 # Nitrogen dipole moments
 # file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
@@ -40,10 +40,10 @@ with h5py.File(file, 'r') as hf:
     energies_h5 = hf['SFS_ENERGIES'][:]
 
 # states_selected = np.concatenate((np.arange(0, 2, 1), np.arange(20, 40, 1)))
-states_selected = np.concatenate((np.array([0]), np.array([3]), np.arange(20, 40, 1)))
-# states_selected = np.arange(0, 40)
-dips = dips[np.ix_(np.arange(3), states_selected, states_selected)]
-energies_h5 = energies_h5[states_selected]
+# states_selected = np.concatenate((np.array([0]), np.array([3]), np.arange(20, 40, 1)))
+# # states_selected = np.arange(0, 40)
+# dips = dips[np.ix_(np.arange(3), states_selected, states_selected)]
+# energies_h5 = energies_h5[states_selected]
 
 idcs = np.arange(dips.shape[1])
 
@@ -138,7 +138,6 @@ splitting_samples = samples[:, 0]/au2ev
 sigmas_au_lower = 0.44*2*np.pi/(samples[:, 1]/au2ev)
 sigmas_au_upper = 0.44*2*np.pi/(samples[:, 2]/au2ev)
 
-
 # splitting_samples = np.array([5.5])/au2ev
 # sigmas_au_lower = 0.44*2*np.pi/(np.array([2.5])/au2ev)
 # sigmas_au_upper = 0.44*2*np.pi/(np.array([2.5])/au2ev)
@@ -149,7 +148,8 @@ splitting = 5.5/au2ev
 mu1 = -44.24
 mu2 = 44.24
 
-F_val = 10.0  # target fluence in a.u. (int |E|^2 dt)
+# F_val = 51.3841608324  # target fluence in a.u. (int |E|^2 dt)
+F_val = 20
 
 # photon_energy cancels in pulse_fluence_integral (only the splitting matters);
 # photon_energies[0] is used as a representative value.
@@ -282,7 +282,7 @@ if rank==0:
         hf.create_dataset('theta_points', data=theta_points)
         hf.create_dataset('t_axis', data=np.arange(t0, t1, dt))
         hf.create_dataset('energies', data=energies)
-        hf.create_dataset('states_selected', data=states_selected)
+        # hf.create_dataset('states_selected', data=states_selected)
 
 toc = time.time()
 

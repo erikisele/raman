@@ -1,7 +1,7 @@
 from mpi4py import MPI
 import numpy as np
 import time
-from raman_utils import sample_from_3d_hist, U_p_shaped, ionization_xc_pAp_bw_weighted_shaped
+from raman_utils import sample_from_3d_hist, U_p_shaped, ionization_xc_pAp_bw_weighted_shaped, pulse_fluence_integral
 import h5py
 import pickle
 
@@ -30,7 +30,7 @@ pulse_type = 'blue_before'
 if not (pulse_type=='red_before' or pulse_type=='blue_before'):
     raise ValueError("Invalid pulse type")
 
-savefile = f'sample_bandwidths_{pulse_type}_version_6_I_1e16_all_states.h5'
+savefile = f'sample_bandwidths_{pulse_type}_version_fluence_norm_F_20_au_10x_ionization.h5'
 
 # Nitrogen dipole moments
 # file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
@@ -41,9 +41,9 @@ with h5py.File(file, 'r') as hf:
 
 # states_selected = np.concatenate((np.arange(0, 2, 1), np.arange(20, 40, 1)))
 # states_selected = np.concatenate((np.array([0]), np.array([3]), np.arange(20, 40, 1)))
-states_selected = np.arange(0, 40)
-dips = dips[np.ix_(np.arange(3), states_selected, states_selected)]
-energies_h5 = energies_h5[states_selected]
+# # states_selected = np.arange(0, 40)
+# dips = dips[np.ix_(np.arange(3), states_selected, states_selected)]
+# energies_h5 = energies_h5[states_selected]
 
 idcs = np.arange(dips.shape[1])
 
@@ -76,7 +76,7 @@ dt = 0.1e-18/2.419e-17
 # Worker function (unchanged)
 # --------------------------------------------------
 def compute_block(args):
-    k, photon_energy, splitting, sigma_lower, sigma_upper, theta, phi, E_val, D_hat, Z, energies = args
+    k, photon_energy, splitting, sigma_lower, sigma_upper, phi, theta, E_val, D_hat, Z, energies = args
     # D_hat and Z are precomputed once per angle outside the task list
 
     # red before
@@ -138,7 +138,6 @@ splitting_samples = samples[:, 0]/au2ev
 sigmas_au_lower = 0.44*2*np.pi/(samples[:, 1]/au2ev)
 sigmas_au_upper = 0.44*2*np.pi/(samples[:, 2]/au2ev)
 
-
 # splitting_samples = np.array([5.5])/au2ev
 # sigmas_au_lower = 0.44*2*np.pi/(np.array([2.5])/au2ev)
 # sigmas_au_upper = 0.44*2*np.pi/(np.array([2.5])/au2ev)
@@ -149,8 +148,19 @@ splitting = 5.5/au2ev
 mu1 = -44.24
 mu2 = 44.24
 
-I_val = 1e16/au_2_wcm2
-E_val = np.sqrt(I_val)
+# F_val = 51.3841608324  # target fluence in a.u. (int |E|^2 dt)
+F_val = 20
+
+# photon_energy cancels in pulse_fluence_integral (only the splitting matters);
+# photon_energies[0] is used as a representative value.
+if pulse_type == "red_before":
+    norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_lower, sigma_upper, 1, 1, photon_energies[0]-splitting_sample, photon_energies[0])
+                for splitting_sample, sigma_lower, sigma_upper
+                in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
+else:
+    norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_upper, sigma_lower, 1, 1, photon_energies[0], photon_energies[0]-splitting_sample)
+                for splitting_sample, sigma_lower, sigma_upper
+                in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
 
 # phi_points = np.array([0.0])
 # theta_points = np.array([0.0])
@@ -207,11 +217,14 @@ for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
     print('photon_energies_v: ', photon_energies_v)
 
+    _, norm_v = np.meshgrid(photon_energies, norm_per_sample)
+    I_vals_v = F_val / norm_v.flatten()
+
     # Build full task list (only rank 0)
     if rank == 0:
-        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, E_val, D_hat_loc, Z_loc, energies)
-                 for k, (photon_energy, splitting_sample, sigma_lower, sigma_upper)
-                 in enumerate(zip(photon_energies_v, splitting_samples_v, sigmas_au_lower_v, sigmas_au_upper_v))]
+        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, np.sqrt(I_val), D_hat_loc, Z_loc, energies)
+                 for k, (photon_energy, splitting_sample, sigma_lower, sigma_upper, I_val)
+                 in enumerate(zip(photon_energies_v, splitting_samples_v, sigmas_au_lower_v, sigmas_au_upper_v, I_vals_v))]
 
         # Split tasks across ranks
         task_chunks = split_list(tasks, size)
@@ -264,12 +277,12 @@ if rank==0:
         hf.create_dataset('sigmas_au_lower', data=sigmas_au_lower)
         hf.create_dataset('sigmas_au_upper', data=sigmas_au_upper)
         hf.create_dataset('photon_energies', data=photon_energies)
-        hf.create_dataset('I_val', data=np.array([I_val]))
+        hf.create_dataset('F_val', data=np.array([F_val]))
         hf.create_dataset('phi_points', data=phi_points)
         hf.create_dataset('theta_points', data=theta_points)
         hf.create_dataset('t_axis', data=np.arange(t0, t1, dt))
         hf.create_dataset('energies', data=energies)
-        hf.create_dataset('states_selected', data=states_selected)
+        # hf.create_dataset('states_selected', data=states_selected)
 
 toc = time.time()
 

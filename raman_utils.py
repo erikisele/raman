@@ -91,7 +91,7 @@ def ionization_xc_pAp_bw_weighted_shaped(photon_energy1_eV, photon_energy2_eV, s
     w1 = np.exp(-((photon_energy_lut - (photon_energy1_eV + ionization_calc_offset)) * ( sigma1_t_au / (au2ev * 0.44*2*np.pi))) ** 2) # note no factor of two because this uses the electric field RMS duration to calculate the bandwidth of the intensity
     w2 = np.exp(-((photon_energy_lut - (photon_energy2_eV+ionization_calc_offset)) * ( sigma2_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
     weights = w1 + w2
-    return np.dot(weights, xc_lut) / weights.sum()
+    return 10 * np.dot(weights, xc_lut) / weights.sum()
 
 def I2(t0, t1, sigma, E, energy):
     dt_loc = t1 - t0

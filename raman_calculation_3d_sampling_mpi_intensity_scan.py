@@ -30,7 +30,7 @@ pulse_type = 'red_before'
 if not (pulse_type=='red_before' or pulse_type=='blue_before'):
     raise ValueError("Invalid pulse type")
 
-savefile = f'sample_bandwidths_{pulse_type}_intensity_scan_version_2.h5'
+savefile = f'sample_bandwidths_{pulse_type}_intensity_scan_fluence_norm.h5'
 
 # Nitrogen dipole moments
 file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
@@ -122,10 +122,8 @@ def compute_block(args):
 
     return k, result
 
-
-
 photon_energy = 402/au2ev
-F_vals = np.logspace(-3, 4, 30)
+F_vals = np.logspace(-3, 5, 30)
 # I_vals = np.logspace(20, 43, 2)/au_2_wcm2
 # I_vals = np.array([1e16])/au_2_wcm2
 
@@ -284,6 +282,7 @@ if rank==0:
         hf.create_dataset('phi_points', data=phi_points)
         hf.create_dataset('theta_points', data=theta_points)
         hf.create_dataset('photon_energy', data=np.array([photon_energy]))
+        hf.create_dataset('energies', data=energies)
 
 toc = time.time()
 
