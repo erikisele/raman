@@ -138,7 +138,8 @@ mu1 = -44.24
 mu2 = 44.24
 
 # F_val = 51.3841608324  # target fluence in a.u. (int |E|^2 dt)
-F_val = 20
+# F_val = 20
+F_val = 1/0.15569
 
 # phi_points = np.array([0.0])
 # theta_points = np.array([0.0])

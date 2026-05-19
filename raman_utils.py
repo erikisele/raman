@@ -33,9 +33,13 @@ ionization_calc_offset = 4.177 # this is a fudge factor that aligns the edge wit
 # photon energy points
 
 def ionization_xc_element(element, energy):
+    # mu_elam = xraydb.mu_elam(element, energy)
+    # rho = xraydb.atomic_density(element)
+    # xc = mu_elam*rho
+
     mu_elam = xraydb.mu_elam(element, energy)
-    rho = xraydb.atomic_density(element)
-    xc = mu_elam*rho
+    mass = xraydb.atomic_mass(element)
+    xc = mu_elam * mass / 6.0221408e+23
     return xc
 
 def ionization_xc_pAp(energy):
@@ -151,16 +155,16 @@ def U2(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z, verbose=True):
     I1_loc = I1(t0_loc, t1_loc, sigma, E, photon_energy)
     phase = np.exp(-1.0j * np.diag(D_hat) * I1_loc * q / hbar)
     U2_loc = (Z * phase) @ Z.T.conj()
-    if np.any(np.isnan(U2_loc)):
-        print("nan in U2_loc")
+    # if np.any(np.isnan(U2_loc)):
+    #     print("nan in U2_loc")
     return U2_loc
 
 def U2_shaped(t0_loc, t1_loc, mu1, mu2, photon_energy1, photon_energy2, sigma1, sigma2, E1, E2, D_hat, Z, phase, verbose=True):
     I1_loc = I1_shaped(t0_loc, t1_loc, mu1, mu2, sigma1, sigma2, E1, E2, photon_energy1, photon_energy2, phase)
     phase_factor = np.exp(-1.0j * np.diag(D_hat) * I1_loc * q / hbar)
     U2_loc = (Z * phase_factor) @ Z.T.conj()
-    if np.any(np.isnan(U2_loc)):
-        print("nan in U2_loc")
+    # if np.any(np.isnan(U2_loc)):
+    #     print("nan in U2_loc")
     return U2_loc
 
 def U_tilde(t0_loc, t1_loc, photon_energy, sigma, E, D_hat, Z, energies):

@@ -25,12 +25,12 @@ def split_list(lst, n):
     k, m = divmod(len(lst), n)
     return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
 
-pulse_type = 'red_before'
+pulse_type = 'blue_before'
 
 if not (pulse_type=='red_before' or pulse_type=='blue_before'):
     raise ValueError("Invalid pulse type")
 
-savefile = f'sample_bandwidths_{pulse_type}_intensity_scan_fluence_norm.h5'
+savefile = f'sample_bandwidths_{pulse_type}_intensity_scan_fluence_norm_28_angles_400_samples.h5'
 
 # Nitrogen dipole moments
 file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
@@ -132,12 +132,12 @@ splitting = 5.5/au2ev
 mu1 = -44.24
 mu2 = 44.24
 
-# data = np.load('angle_points_28.npz')
-# theta_points = data['theta_points']
-# phi_points = data['phi_points']
+data = np.load('/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/angle_points_28.npz')
+theta_points = data['theta_points']
+phi_points = data['phi_points']
 
-theta_points = np.array([0.0])
-phi_points = np.array([0.0])
+# theta_points = np.array([0.0])
+# phi_points = np.array([0.0])
 phase_vals = np.arange(0, 2*np.pi, np.pi/2)  # [0, pi/2, pi, 3pi/2]
 
 # --------------------------------------------------
@@ -167,6 +167,8 @@ I_val_idx_v = F_val_idx_v.flatten()
 sigma_idx_v = sigma_idx_v.flatten()
 
 for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
+
+    print(f"angle {j} of {len(phi_points)}")
 
     # Eigendecomposition for this angle — computed once, shared across all tasks at this angle
     dip_loc = np.sin(phi)*np.cos(theta)*dips[0] + np.sin(phi)*np.sin(theta)*dips[1] + np.cos(phi)*dips[2]

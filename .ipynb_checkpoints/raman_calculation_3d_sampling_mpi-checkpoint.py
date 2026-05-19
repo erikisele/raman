@@ -76,10 +76,9 @@ dt = 0.1e-18/2.419e-17
 # Worker function (unchanged)
 # --------------------------------------------------
 def compute_block(args):
-    k, photon_energy, splitting, sigma_lower, sigma_upper, phi, theta, E_val, D_hat, Z, energies = args
+    k, photon_energy, splitting, sigma_lower, sigma_upper, phi, theta, E_val, D_hat, Z, energies, phase = args
     # D_hat and Z are precomputed once per angle outside the task list
 
-    # red before
     if pulse_type=='red_before':
         photon_energy2 = photon_energy
         photon_energy1 = photon_energy - (splitting)
@@ -87,30 +86,20 @@ def compute_block(args):
         photon_energy1 = photon_energy
         photon_energy2 = photon_energy - (splitting)
 
-    # red before
     if pulse_type=='red_before':
         result = U_p_shaped(
             t0, t1, dt,
             mu1, mu2, photon_energy1, photon_energy2,
             sigma_lower, sigma_upper, E_val, E_val,
-            D_hat, Z, energies
+            D_hat, Z, energies, phase
         )
-
     else: # blue before
         result = U_p_shaped(
             t0, t1, dt,
             mu1, mu2, photon_energy1, photon_energy2,
             sigma_upper, sigma_lower, E_val, E_val,
-            D_hat, Z, energies
+            D_hat, Z, energies, phase
         )
-
-    # red before
-    # result = U_p_shaped(
-    #     t0, t1, dt,
-    #     mu1, mu2, photon_energy1, photon_energy2,
-    #     sigma_lower, sigma_upper, E_val, E_val,
-    #     D_hat, Z, energies
-    # )
 
     return k, result
 
@@ -149,18 +138,8 @@ mu1 = -44.24
 mu2 = 44.24
 
 # F_val = 51.3841608324  # target fluence in a.u. (int |E|^2 dt)
-F_val = 20
-
-# photon_energy cancels in pulse_fluence_integral (only the splitting matters);
-# photon_energies[0] is used as a representative value.
-if pulse_type == "red_before":
-    norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_lower, sigma_upper, 1, 1, photon_energies[0]-splitting_sample, photon_energies[0])
-                for splitting_sample, sigma_lower, sigma_upper
-                in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
-else:
-    norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_upper, sigma_lower, 1, 1, photon_energies[0], photon_energies[0]-splitting_sample)
-                for splitting_sample, sigma_lower, sigma_upper
-                in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
+# F_val = 20
+F_val = 1/0.15569
 
 # phi_points = np.array([0.0])
 # theta_points = np.array([0.0])
@@ -171,31 +150,23 @@ else:
 
 phi_points = np.array([0.0])
 theta_points = np.array([0.0])
-
-
-# --------------------------------------------------
-# Broadcast shared data
-# --------------------------------------------------
-# dims = comm.bcast(dims, root=0)
-# photon_energies = comm.bcast(photon_energies, root=0)
-# sigmas_au_lower = comm.bcast(sigmas_au_lower, root=0)
-# sigmas_au_upper = comm.bcast(sigmas_au_upper, root=0)
-# phi_points = comm.bcast(phi_points, root=0)
-# theta_points = comm.bcast(theta_points, root=0)
-# E_val = comm.bcast(E_val, root=0)
+phase_vals = np.arange(0, 2*np.pi, np.pi/2)  # [0, pi/2, pi, 3pi/2]
 
 # --------------------------------------------------
 # Main computation
 # --------------------------------------------------
 tic = time.time()
 
-all_results = []
-
 if rank==0:
-    U_p_int_scan = np.zeros((len(phi_points), len(photon_energies),
+    U_p_int_scan = np.zeros((len(phi_points), len(phase_vals), len(photon_energies),
                              nsamples, len(energies), len(energies)),
                              dtype=np.complex64)
 
+photon_energy_idx = np.arange(len(photon_energies))
+sigma_idx = np.arange(len(sigmas_au_lower))
+photon_energy_idx_v, sigma_idx_v = np.meshgrid(photon_energy_idx, sigma_idx)
+photon_energy_idx_v = photon_energy_idx_v.flatten()
+sigma_idx_v = sigma_idx_v.flatten()
 
 for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
@@ -215,61 +186,44 @@ for j, (phi, theta) in enumerate(zip(phi_points, theta_points)):
     sigmas_au_upper_v = sigmas_au_upper_v.flatten()
     splitting_samples_v = splitting_samples_v.flatten()
 
-    print('photon_energies_v: ', photon_energies_v)
+    for p_idx, phase in enumerate(phase_vals):
 
-    _, norm_v = np.meshgrid(photon_energies, norm_per_sample)
-    I_vals_v = F_val / norm_v.flatten()
+        # norm depends on phase through the cross-term cos(domega*mu_bar - phase);
+        # photon_energy cancels (only the splitting matters), so photon_energies[0] suffices.
+        if pulse_type == "red_before":
+            norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_lower, sigma_upper, 1, 1, photon_energies[0]-splitting_sample, photon_energies[0], phase)
+                        for splitting_sample, sigma_lower, sigma_upper
+                        in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
+        else:
+            norm_per_sample = np.array([pulse_fluence_integral(mu1, mu2, sigma_upper, sigma_lower, 1, 1, photon_energies[0], photon_energies[0]-splitting_sample, phase)
+                        for splitting_sample, sigma_lower, sigma_upper
+                        in zip(splitting_samples, sigmas_au_lower, sigmas_au_upper)])
 
-    # Build full task list (only rank 0)
-    if rank == 0:
-        tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, np.sqrt(I_val), D_hat_loc, Z_loc, energies)
-                 for k, (photon_energy, splitting_sample, sigma_lower, sigma_upper, I_val)
-                 in enumerate(zip(photon_energies_v, splitting_samples_v, sigmas_au_lower_v, sigmas_au_upper_v, I_vals_v))]
+        _, norm_v = np.meshgrid(photon_energies, norm_per_sample)
+        I_vals_v = F_val / norm_v.flatten()
 
-        # Split tasks across ranks
-        task_chunks = split_list(tasks, size)
-    else:
-        task_chunks = None
+        # Build full task list (only rank 0)
+        if rank == 0:
+            tasks = [(k, photon_energy, splitting_sample, sigma_lower, sigma_upper, phi, theta, np.sqrt(I_val), D_hat_loc, Z_loc, energies, phase)
+                     for k, (photon_energy, splitting_sample, sigma_lower, sigma_upper, I_val)
+                     in enumerate(zip(photon_energies_v, splitting_samples_v, sigmas_au_lower_v, sigmas_au_upper_v, I_vals_v))]
 
-    # Scatter tasks
-    # print('task_chucks len: ', len(task_chunks))
-    local_tasks = comm.scatter(task_chunks, root=0)
+            task_chunks = split_list(tasks, size)
+        else:
+            task_chunks = None
 
-    # Each rank computes its chunk
-    local_results = [compute_block(task) for task in local_tasks]
+        local_tasks = comm.scatter(task_chunks, root=0)
+        local_results = [compute_block(task) for task in local_tasks]
+        gathered = comm.gather(local_results, root=0)
 
-    # Gather results
-    gathered = comm.gather(local_results, root=0)
+        if rank == 0:
+            results = [item for sublist in gathered for item in sublist]
 
-    # --------------------------------------------------
-    # Reassemble on rank 0
-    # --------------------------------------------------
-    if rank == 0:
-        results = [item for sublist in gathered for item in sublist]
+            for k, result in results:
+                pe_idx = photon_energy_idx_v[k]
+                s_idx = sigma_idx_v[k]
+                U_p_int_scan[j, p_idx, pe_idx, s_idx] = result
 
-        print('results length: ', len(results))
-
-        photon_energy_idx = np.arange(len(photon_energies))
-        sigma_idx = np.arange(len(sigmas_au_lower))
-
-        photon_energy_idx_v, sigma_idx_v = np.meshgrid(photon_energy_idx, sigma_idx)
-        photon_energy_idx_v = photon_energy_idx_v.flatten()
-        sigma_idx_v = sigma_idx_v.flatten()
-
-        # allocate output once
-        # if 'U_p_int_scan' not in globals():
-        #     U_p_int_scan = np.zeros(
-        #         (len(phi_points), len(photon_energies),
-        #          len(sigmas_au_lower), len(energies), len(energies)),
-        #         dtype=np.complex64
-        #     )
-
-        for k, result in results:
-            p_idx = photon_energy_idx_v[k]
-            print('p_idx: ', p_idx)
-            s_idx = sigma_idx_v[k]
-            U_p_int_scan[j, p_idx, s_idx] = result
-                
 if rank==0:
     with h5py.File(f'{savefile}', 'w') as hf:
         hf.create_dataset('U_p_int_scan', data=U_p_int_scan)
@@ -277,12 +231,12 @@ if rank==0:
         hf.create_dataset('sigmas_au_lower', data=sigmas_au_lower)
         hf.create_dataset('sigmas_au_upper', data=sigmas_au_upper)
         hf.create_dataset('photon_energies', data=photon_energies)
+        hf.create_dataset('phase_vals', data=phase_vals)
         hf.create_dataset('F_val', data=np.array([F_val]))
         hf.create_dataset('phi_points', data=phi_points)
         hf.create_dataset('theta_points', data=theta_points)
         hf.create_dataset('t_axis', data=np.arange(t0, t1, dt))
         hf.create_dataset('energies', data=energies)
-        # hf.create_dataset('states_selected', data=states_selected)
 
 toc = time.time()
 
