@@ -103,10 +103,7 @@ def compute_block(args):
 
     return k, result
 
-
-
 photon_energies = np.linspace(392, 420, 40)/au2ev  
-
 
 data = np.load('/sdf/data/lcls/ds/tmo/tmo101269225/results/erik/sigma_distribution_coherent_fitting_diff_filt_run226.npz')
 bins_lower = data['bins_lower'] + np.diff(data['bins_lower'])[0]/2
