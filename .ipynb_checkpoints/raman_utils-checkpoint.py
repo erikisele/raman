@@ -95,7 +95,7 @@ def ionization_xc_pAp_bw_weighted_shaped(photon_energy1_eV, photon_energy2_eV, s
     w1 = np.exp(-((photon_energy_lut - (photon_energy1_eV + ionization_calc_offset)) * ( sigma1_t_au / (au2ev * 0.44*2*np.pi))) ** 2) # note no factor of two because this uses the electric field RMS duration to calculate the bandwidth of the intensity
     w2 = np.exp(-((photon_energy_lut - (photon_energy2_eV+ionization_calc_offset)) * ( sigma2_t_au / (au2ev * 0.44*2*np.pi))) ** 2)
     weights = w1 + w2
-    return 10 * np.dot(weights, xc_lut) / weights.sum()
+    return np.dot(weights, xc_lut) / weights.sum()
 
 def I2(t0, t1, sigma, E, energy):
     dt_loc = t1 - t0
@@ -207,6 +207,39 @@ def U_p_shaped(t0_loc, t1_loc, dt, mu1, mu2, photon_energy1, photon_energy2, sig
         U_p_loc = np.diag(u1_init)
     else:
         # First step: fuse with initial diagonal via column scaling (avoids one O(N^3) matmul)
+        U_p_loc = _u_tilde(time_steps[0]) * u1_init[None, :]
+        for t0_s in time_steps[1:]:
+            U_p_loc = _u_tilde(t0_s) @ U_p_loc
+
+    u1_final = _u1_diag(t1_loc, t1_loc + dt/2)
+    return u1_final[:, None] * U_p_loc
+
+def U_p(t0_loc, t1_loc, dt, photon_energy, sigma, E, D_hat, Z, energies):
+    d_hat_diag = np.diag(D_hat)
+
+    # xc_factor = ionization_xc_pAp(photon_energy * au2ev, sigma)
+    xc_factor = ionization_xc_pAp(photon_energy * au2ev)
+    xc_scale = xc_factor * (1.0 / (5.29177e-9)**2) / photon_energy
+    u0_dt = np.exp(-1.0j * energies * dt)
+
+    def _u1_diag(t0, t1):
+        i2 = I2(t0, t1, sigma, E, photon_energy)
+        return np.exp(-xc_scale * i2) * np.exp(-1.0j * energies * (t1 - t0))
+
+    def _u_tilde(t0_s):
+        I1_loc = I1(t0_s, t0_s + dt, sigma, E, photon_energy)
+        phase_factor = np.exp(-1.0j * d_hat_diag * I1_loc)
+        U2_loc = (Z * phase_factor) @ Z.conj().T
+        i2_mid = I2(t0_s + dt/2, t0_s + 1.5*dt, sigma, E, photon_energy)
+        u1_loc = np.exp(-xc_scale * i2_mid) * u0_dt
+        return u1_loc[:, None] * U2_loc
+
+    u1_init = _u1_diag(t0_loc, t1_loc + dt/2)
+    time_steps = np.arange(t0_loc, t1_loc, dt)
+
+    if len(time_steps) == 0:
+        U_p_loc = np.diag(u1_init)
+    else:
         U_p_loc = _u_tilde(time_steps[0]) * u1_init[None, :]
         for t0_s in time_steps[1:]:
             U_p_loc = _u_tilde(t0_s) @ U_p_loc

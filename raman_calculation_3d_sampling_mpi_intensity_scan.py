@@ -25,7 +25,7 @@ def split_list(lst, n):
     k, m = divmod(len(lst), n)
     return [lst[i*k + min(i, m):(i+1)*k + min(i+1, m)] for i in range(n)]
 
-pulse_type = 'blue_before'
+pulse_type = 'red_before'
 
 if not (pulse_type=='red_before' or pulse_type=='blue_before'):
     raise ValueError("Invalid pulse type")

@@ -30,7 +30,7 @@ pulse_type = 'blue_before'
 if not (pulse_type=='red_before' or pulse_type=='blue_before'):
     raise ValueError("Invalid pulse type")
 
-savefile = f'sample_bandwidths_{pulse_type}_version_fluence_norm_F_20_au_10x_ionization.h5'
+savefile = f'sample_bandwidths_{pulse_type}_version_fluence_norm_final.h5'
 
 # Nitrogen dipole moments
 # file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/meta_dipoles/input.rassi.h5"
@@ -103,10 +103,7 @@ def compute_block(args):
 
     return k, result
 
-
-
 photon_energies = np.linspace(392, 420, 40)/au2ev  
-
 
 data = np.load('/sdf/data/lcls/ds/tmo/tmo101269225/results/erik/sigma_distribution_coherent_fitting_diff_filt_run226.npz')
 bins_lower = data['bins_lower'] + np.diff(data['bins_lower'])[0]/2
@@ -144,13 +141,13 @@ F_val = 1/0.15569
 # phi_points = np.array([0.0])
 # theta_points = np.array([0.0])
 
-# data = np.load('angle_points_54.npz')
-# theta_points = data['theta_points']
-# phi_points = data['phi_points']
+data = np.load('/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/angle_points_28.npz')
+theta_points = data['theta_points']
+phi_points = data['phi_points']
 
-phi_points = np.array([0.0])
-theta_points = np.array([0.0])
-phase_vals = np.arange(0, 2*np.pi, np.pi/2)  # [0, pi/2, pi, 3pi/2]
+# phi_points = np.array([0.0])
+# theta_points = np.array([0.0])
+phase_vals = np.arange(0, 3*np.pi/4, np.pi/2)  # [0, pi/2, pi, 3pi/2]
 
 # --------------------------------------------------
 # Main computation
