@@ -26,7 +26,9 @@ def split_list(lst, n):
 
 
 # Nitrogen dipole moments
-file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/input.rassi.oxygen.h5"
+# file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/input.rassi.oxygen.h5"
+file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/ANO-S_calcs/pAp_oxygen/input.rassi.h5"
+
 with h5py.File(file, 'r') as hf:
     dips = hf['SFS_EDIPMOM'][:]
     energies_h5 = hf['SFS_ENERGIES'][:]
@@ -69,17 +71,33 @@ sigmas_ev = np.array([0.3298308241640277, 1.6894796270170467, 3.772467287185564]
 sigmas_au = 0.44*2*np.pi/(sigmas_ev/au2ev)
 
 # Fluence value (translates to 10 uJ at the given geometry)
-F_val = 227/0.15569/10 / 2  
+F_val = 227/0.15569 / 2
 
 savefile = f'single_pulse_scan_mpi_f_val_{F_val}_half_normal_energy.h5'
-
-
-# phi_points = np.array([0.0])
-# theta_points = np.array([0.0])
 
 data = np.load('/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/angle_points_28.npz')
 theta_points = data['theta_points']
 phi_points = data['phi_points']
+
+# --------------------------------------------------
+# Precompute E_val for each sigma (fluence → peak intensity)
+# For E(t) = E0*exp(-t²/(2σ²))*cos(ωt), matches single_pulse_scan.py convention.
+I_vals = F_val / (sigmas_au / np.sqrt(2) * np.sqrt(2*np.pi))
+E_vals = np.sqrt(I_vals)
+
+# Index arrays for reassembling results — constant across all loops
+photon_energy_idx_v, sigma_idx_v = np.meshgrid(
+    np.arange(len(photon_energies)), np.arange(len(sigmas_au))
+)
+photon_energy_idx_v = photon_energy_idx_v.flatten()
+sigma_idx_v = sigma_idx_v.flatten()
+
+# Flat arrays of (photon_energy, E_val, sigma) over the full (sigma × photon_energy) grid
+photon_energies_v, E_vals_v = np.meshgrid(photon_energies, E_vals)
+_, sigmas_v = np.meshgrid(photon_energies, sigmas_au)
+photon_energies_v = photon_energies_v.flatten()
+E_vals_v = E_vals_v.flatten()
+sigmas_v = sigmas_v.flatten()
 
 # --------------------------------------------------
 # Main computation
@@ -93,39 +111,34 @@ if rank == 0:
     )
 
 for di, i in enumerate(dims):
-    for j, sigma in enumerate(sigmas_au):
+    for ai, (phi, theta) in enumerate(zip(phi_points, theta_points)):
 
-        # Fluence → peak intensity for a Gaussian pulse centered at t=0.
-        # For E(t) = E0*exp(-t²/(2σ²))*cos(ωt), F = ∫|E|²dt = E0²*σ*√π/√2*√2 = E0²*σ√π/2
-        # The formula below matches single_pulse_scan.py convention.
-        I_val = F_val / (sigma / np.sqrt(2) * np.sqrt(2*np.pi))
-        E_val = np.sqrt(I_val)
+        # Eigendecomposition done once per angle, shared across all (sigma, photon_energy) tasks
+        dip_loc = (np.sin(phi)*np.cos(theta)*dips[0]
+                   + np.sin(phi)*np.sin(theta)*dips[1]
+                   + np.cos(phi)*dips[2])
+        D_vals_loc, Z_loc = np.linalg.eigh(dip_loc)
+        D_hat_loc = np.diag(D_vals_loc)
 
-        for ai, (phi, theta) in enumerate(zip(phi_points, theta_points)):
+        if rank == 0:
+            tasks = [(k, photon_energy, E_val, sigma, D_hat_loc, Z_loc)
+                     for k, (photon_energy, E_val, sigma)
+                     in enumerate(zip(photon_energies_v, E_vals_v, sigmas_v))]
+            task_chunks = split_list(tasks, size)
+        else:
+            task_chunks = None
 
-            # Eigendecomposition done once per (dim, sigma, angle), passed to workers
-            dip_loc = (np.sin(phi)*np.cos(theta)*dips[0]
-                       + np.sin(phi)*np.sin(theta)*dips[1]
-                       + np.cos(phi)*dips[2])
-            D_vals_loc, Z_loc = np.linalg.eigh(dip_loc)
-            D_hat_loc = np.diag(D_vals_loc)
+        local_tasks = comm.scatter(task_chunks, root=0)
+        local_results = [compute_block(task) for task in local_tasks]
+        gathered = comm.gather(local_results, root=0)
 
-            if rank == 0:
-                tasks = [(k, photon_energy, E_val, sigma, D_hat_loc, Z_loc)
-                         for k, photon_energy in enumerate(photon_energies)]
-                task_chunks = split_list(tasks, size)
-            else:
-                task_chunks = None
+        if rank == 0:
+            results = [item for sublist in gathered for item in sublist]
 
-            local_tasks = comm.scatter(task_chunks, root=0)
-            local_results = [compute_block(task) for task in local_tasks]
-            gathered = comm.gather(local_results, root=0)
-
-            if rank == 0:
-                results = [item for sublist in gathered for item in sublist]
-
-                for k, result in results:
-                    U_p_int_scan[di, j, k, ai] = result
+            for k, result in results:
+                p_idx = photon_energy_idx_v[k]
+                s_idx = sigma_idx_v[k]
+                U_p_int_scan[di, s_idx, p_idx, ai] = result
 
 toc = time.time()
 

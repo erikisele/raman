@@ -26,7 +26,9 @@ def split_list(lst, n):
 
 
 # Nitrogen dipole moments
-file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/input.rassi.oxygen.h5"
+# file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/input.rassi.oxygen.h5"
+file = "/sdf/home/i/isele/tmo100827624/results/erik/raman_calculation/ANO-S_calcs/pAp_oxygen/input.rassi.h5"
+
 with h5py.File(file, 'r') as hf:
     dips = hf['SFS_EDIPMOM'][:]
     energies_h5 = hf['SFS_ENERGIES'][:]
@@ -69,7 +71,7 @@ sigmas_ev = np.array([0.3298308241640277, 1.6894796270170467, 3.772467287185564]
 sigmas_au = 0.44*2*np.pi/(sigmas_ev/au2ev)
 
 # Fluence value (translates to 10 uJ at the given geometry)
-F_val = 227/0.15569/10 / 2
+F_val = 227/0.15569 / 2
 
 savefile = f'single_pulse_scan_mpi_f_val_{F_val}_half_normal_energy.h5'
 
